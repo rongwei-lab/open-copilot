@@ -1,0 +1,141 @@
+import vscode from 'vscode';
+import { t } from '../i18n';
+import type {
+	ModelDefinition,
+	PricingCurrency,
+	ReasoningEffort,
+	ThinkingCapability,
+} from '../types';
+import { toModelCostInfo, type ModelCostInformation } from './pricing/costs';
+
+/**
+ * NOTE: Non-public API surface.
+ *
+ * The fields below (`configurationSchema` on chat info, cost metadata,
+ * `modelConfiguration` on response options, plus `isBYOK` / `isUserSelectable` /
+ * `statusIcon`)
+ * are not part of the stable `vscode.LanguageModelChat*` typings yet. They are
+ * the same shape currently consumed by GitHub Copilot Chat to render model picker
+ * metadata and per-model configuration controls.
+ */
+
+export type ThinkingEffort = 'none' | ReasoningEffort;
+
+export type ModelConfigurationOptions = vscode.ProvideLanguageModelChatResponseOptions & {
+	readonly modelOptions?: Record<string, unknown>;
+	readonly modelConfiguration?: Record<string, unknown>;
+	readonly configuration?: Record<string, unknown>;
+};
+
+type ThinkingEffortConfigurationSchema = ReturnType<typeof buildThinkingEffortSchema>;
+
+export type ModelPickerChatInformation = vscode.LanguageModelChatInformation &
+	ModelCostInformation & {
+		readonly isUserSelectable: boolean;
+		readonly isBYOK: true;
+		readonly statusIcon?: vscode.ThemeIcon;
+		readonly configurationSchema?: ThinkingEffortConfigurationSchema;
+	};
+
+export function toChatInfo(
+	m: ModelDefinition,
+	hasApiKey: boolean,
+	pricingCurrency?: PricingCurrency,
+): ModelPickerChatInformation {
+	const modelDetail = resolveModelText(m, 'detail') ?? m.detail;
+	const modelTooltip = resolveModelText(m, 'tooltip');
+	const thinkingCapability = m.capabilities.thinking;
+	const staleNotice = m.fromStaleCache ? t('model.catalog.stale') : undefined;
+	return {
+		id: m.id,
+		name: m.name,
+		family: m.family,
+		version: m.version,
+		detail: hasApiKey
+			? [modelDetail, staleNotice].filter(Boolean).join(' · ')
+			: t('auth.apiKeyRequiredDetail'),
+		tooltip: hasApiKey
+			? [modelTooltip, staleNotice].filter(Boolean).join(' · ') || undefined
+			: t('auth.apiKeyRequiredDetail'),
+		statusIcon: hasApiKey ? undefined : new vscode.ThemeIcon('warning'),
+		maxInputTokens: m.maxInputTokens,
+		maxOutputTokens: m.maxOutputTokens,
+		isBYOK: true,
+		isUserSelectable: true,
+		capabilities: {
+			toolCalling: m.capabilities.toolCalling,
+			imageInput: m.capabilities.imageInput,
+		},
+		...toModelCostInfo(m, pricingCurrency),
+		...(thinkingCapability
+			? { configurationSchema: buildThinkingEffortSchema(thinkingCapability) }
+			: {}),
+	};
+}
+
+export function getConfiguredThinkingEffort(
+	options: ModelConfigurationOptions,
+	thinkingCapability: ThinkingCapability,
+): ThinkingEffort {
+	// Prefer request-scoped overrides first so an internal proxy pass can force a
+	// specific effort without mutating the persisted user model configuration.
+	const configuredEffort =
+		options.modelOptions?.reasoningEffort ??
+		options.modelOptions?.reasoning_effort ??
+		options.modelConfiguration?.reasoningEffort ??
+		options.modelConfiguration?.reasoning_effort ??
+		options.configuration?.reasoningEffort ??
+		options.configuration?.reasoning_effort;
+
+	if (configuredEffort === 'none') {
+		return thinkingCapability.canDisable ? 'none' : thinkingCapability.defaultEffort;
+	}
+
+	if (isSupportedReasoningEffort(configuredEffort, thinkingCapability)) {
+		return configuredEffort;
+	}
+
+	return thinkingCapability.defaultEffort;
+}
+
+function buildThinkingEffortSchema(thinkingCapability: ThinkingCapability) {
+	const efforts: ThinkingEffort[] = [
+		...new Set<ThinkingEffort>([
+			...(thinkingCapability.canDisable ? (['none'] as const) : []),
+			...thinkingCapability.supportedEfforts,
+		]),
+	];
+
+	return {
+		properties: {
+			reasoningEffort: {
+				type: 'string',
+				title: t('status.thinking'),
+				enum: efforts,
+				enumItemLabels: efforts.map((effort) => translatedOr(effort, `thinking.${effort}`)),
+				enumDescriptions: efforts.map((effort) => translatedOr('', `thinking.${effort}.desc`)),
+				default: thinkingCapability.defaultEffort,
+				group: 'navigation',
+			},
+		},
+	} as const;
+}
+
+function translatedOr(fallback: string, key: string): string {
+	const translated = t(key);
+	return translated === key ? fallback : translated;
+}
+
+function isSupportedReasoningEffort(
+	value: unknown,
+	thinkingCapability: ThinkingCapability,
+): value is ReasoningEffort {
+	return thinkingCapability.supportedEfforts.some((effort) => effort === value);
+}
+
+function resolveModelText(m: ModelDefinition, field: 'detail' | 'tooltip'): string | undefined {
+	const suffix = m.id.startsWith('deepseek-v4-') ? m.id.slice('deepseek-v4-'.length) : m.id;
+	const key = `model.${suffix}.${field}`;
+	const translated = t(key);
+	return translated !== key ? translated : undefined;
+}

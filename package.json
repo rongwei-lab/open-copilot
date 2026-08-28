@@ -1,0 +1,690 @@
+{
+  "name": "open-copilot",
+  "displayName": "open Copilot Chat",
+  "description": "Use models exposed by QuantumNous New API in Copilot Chat with dynamic discovery, tools, reasoning, and vision.",
+  "icon": "resources/icon.png",
+  "version": "1.0.0",
+  "publisher": "rongwei",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rongwei-lab/open-copilot"
+  },
+  "engines": {
+    "vscode": "^1.116.0",
+    "node": ">=24"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "new-api",
+    "newapi",
+    "openai-compatible",
+    "copilot",
+    "github copilot",
+    "copilot chat",
+    "vision",
+    "byok",
+    "language model",
+    "thinking",
+    "reasoning",
+    "ai",
+    "chat"
+  ],
+  "activationEvents": [
+    "onUri",
+    "onStartupFinished",
+    "onCommand:open-copilot.setApiKey",
+    "onCommand:open-copilot.refreshModels",
+    "onCommand:open-copilot.selectModel",
+    "onCommand:open-copilot.addModel",
+    "onCommand:open-copilot.openModelManager"
+  ],
+  "enabledApiProposals": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "open-copilot",
+        "displayName": "Open Copilot",
+        "managementCommand": "open-copilot.addModel"
+      }
+    ],
+    "commands": [
+      {
+        "command": "open-copilot.setApiKey",
+        "title": "%open-copilot.command.setApiKey%"
+      },
+      {
+        "command": "open-copilot.getApiKey",
+        "title": "%open-copilot.command.getApiKey%"
+      },
+      {
+        "command": "open-copilot.clearApiKey",
+        "title": "%open-copilot.command.clearApiKey%"
+      },
+      {
+        "command": "open-copilot.setVisionModel",
+        "title": "%open-copilot.command.setVisionModel%"
+      },
+      {
+        "command": "open-copilot.openSettings",
+        "title": "%open-copilot.command.openSettings%"
+      },
+      {
+        "command": "open-copilot.showLogs",
+        "title": "%open-copilot.command.showLogs%"
+      },
+      {
+        "command": "open-copilot.openRequestDumpsFolder",
+        "title": "%open-copilot.command.openRequestDumpsFolder%"
+      },
+      {
+        "command": "open-copilot.refreshModels",
+        "title": "%open-copilot.command.refreshModels%"
+      },
+      {
+        "command": "open-copilot.selectModel",
+        "title": "%open-copilot.command.selectModel%"
+      },
+      {
+        "command": "open-copilot.addModel",
+        "title": "%open-copilot.command.addModel%"
+      },
+      {
+        "command": "open-copilot.openModelManager",
+        "title": "%open-copilot.command.openModelManager%"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "openCopilotGettingStarted",
+        "title": "%open-copilot.walkthrough.title%",
+        "description": "%open-copilot.walkthrough.description%",
+        "steps": [
+          {
+            "id": "setApiKey",
+            "title": "%open-copilot.walkthrough.setApiKey.title%",
+            "description": "%open-copilot.walkthrough.setApiKey.description%",
+            "media": {
+              "markdown": "resources/walkthrough/set-api-key.md"
+            },
+            "completionEvents": [
+              "onCommand:open-copilot.setApiKey"
+            ]
+          },
+          {
+            "id": "showModels",
+            "title": "%open-copilot.walkthrough.showModels.title%",
+            "description": "%open-copilot.walkthrough.showModels.description%",
+            "media": {
+              "markdown": "resources/walkthrough/show-models.md"
+            }
+          },
+          {
+            "id": "advancedSettings",
+            "title": "%open-copilot.walkthrough.advancedSettings.title%",
+            "description": "%open-copilot.walkthrough.advancedSettings.description%",
+            "media": {
+              "markdown": "resources/walkthrough/advanced-settings.md"
+            }
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "%open-copilot.config.title%",
+      "properties": {
+        "open-copilot.apiKey": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "ignoreSync": true,
+          "title": "%open-copilot.config.apiKey.title%",
+          "markdownDescription": "%open-copilot.config.apiKey.description%"
+        },
+        "open-copilot.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:3000/v1",
+          "title": "%open-copilot.config.baseUrl.title%",
+          "description": "%open-copilot.config.baseUrl.description%"
+        },
+        "open-copilot.maxTokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "title": "%open-copilot.config.maxTokens.title%",
+          "description": "%open-copilot.config.maxTokens.description%"
+        },
+        "open-copilot.requestTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 1000,
+          "maximum": 600000,
+          "title": "%open-copilot.config.requestTimeoutMs.title%",
+          "description": "%open-copilot.config.requestTimeoutMs.description%"
+        },
+        "open-copilot.modelDiscovery.enabled": {
+          "type": "boolean",
+          "default": true,
+          "title": "%open-copilot.config.modelDiscovery.enabled.title%",
+          "description": "%open-copilot.config.modelDiscovery.enabled.description%"
+        },
+        "open-copilot.modelDiscovery.cacheTtlMinutes": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "maximum": 1440,
+          "title": "%open-copilot.config.modelDiscovery.cacheTtlMinutes.title%",
+          "description": "%open-copilot.config.modelDiscovery.cacheTtlMinutes.description%"
+        },
+        "open-copilot.modelDiscovery.includePatterns": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": "%open-copilot.config.modelDiscovery.includePatterns.title%",
+          "description": "%open-copilot.config.modelDiscovery.includePatterns.description%"
+        },
+        "open-copilot.modelDiscovery.excludePatterns": {
+          "type": "array",
+          "default": [
+            "*embedding*",
+            "*rerank*",
+            "*tts*",
+            "*whisper*",
+            "*moderation*",
+            "*image-generation*",
+            "*video-generation*",
+            "*gpt-image*",
+            "*chatgpt-image*",
+            "*gemini-*-image*",
+            "*imagen*",
+            "*veo*",
+            "*qwen-image*",
+            "*wan*-image*",
+            "*grok-imagine*",
+            "*realtime*",
+            "*live-translate*",
+            "*embed*"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": "%open-copilot.config.modelDiscovery.excludePatterns.title%",
+          "description": "%open-copilot.config.modelDiscovery.excludePatterns.description%"
+        },
+        "open-copilot.unknownModelPolicy": {
+          "type": "string",
+          "default": "safe",
+          "title": "%open-copilot.config.unknownModelPolicy.title%",
+          "enum": [
+            "safe",
+            "optimistic",
+            "hide"
+          ],
+          "enumItemLabels": [
+            "%open-copilot.config.unknownModelPolicy.safe.label%",
+            "%open-copilot.config.unknownModelPolicy.optimistic.label%",
+            "%open-copilot.config.unknownModelPolicy.hide.label%"
+          ],
+          "description": "%open-copilot.config.unknownModelPolicy.description%"
+        },
+        "open-copilot.defaultProtocol": {
+          "type": "string",
+          "default": "chat-completions",
+          "title": "%open-copilot.config.defaultProtocol.title%",
+          "enum": [
+            "chat-completions",
+            "responses"
+          ],
+          "enumItemLabels": [
+            "%open-copilot.config.defaultProtocol.chatCompletions.label%",
+            "%open-copilot.config.defaultProtocol.responses.label%"
+          ],
+          "description": "%open-copilot.config.defaultProtocol.description%"
+        },
+        "open-copilot.responses.enabled": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "experimental"
+          ],
+          "title": "%open-copilot.config.responses.enabled.title%",
+          "description": "%open-copilot.config.responses.enabled.description%"
+        },
+        "open-copilot.responses.store": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "experimental"
+          ],
+          "title": "%open-copilot.config.responses.store.title%",
+          "description": "%open-copilot.config.responses.store.description%"
+        },
+        "open-copilot.responses.truncation": {
+          "type": "string",
+          "default": "auto",
+          "title": "%open-copilot.config.responses.truncation.title%",
+          "enum": [
+            "auto",
+            "disabled"
+          ],
+          "enumItemLabels": [
+            "%open-copilot.config.responses.truncation.auto.label%",
+            "%open-copilot.config.responses.truncation.disabled.label%"
+          ],
+          "description": "%open-copilot.config.responses.truncation.description%"
+        },
+        "open-copilot.responses.reasoningSummary": {
+          "type": "string",
+          "default": "auto",
+          "title": "%open-copilot.config.responses.reasoningSummary.title%",
+          "enum": [
+            "auto",
+            "none",
+            "summary",
+            "raw"
+          ],
+          "enumItemLabels": [
+            "%open-copilot.config.responses.reasoningSummary.auto.label%",
+            "%open-copilot.config.responses.reasoningSummary.none.label%",
+            "%open-copilot.config.responses.reasoningSummary.summary.label%",
+            "%open-copilot.config.responses.reasoningSummary.raw.label%"
+          ],
+          "description": "%open-copilot.config.responses.reasoningSummary.description%"
+        },
+        "open-copilot.chat.includeUsage": {
+          "type": "string",
+          "default": "auto",
+          "title": "%open-copilot.config.chat.includeUsage.title%",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "enumItemLabels": [
+            "%open-copilot.config.chat.includeUsage.auto.label%",
+            "%open-copilot.config.chat.includeUsage.always.label%",
+            "%open-copilot.config.chat.includeUsage.never.label%"
+          ],
+          "description": "%open-copilot.config.chat.includeUsage.description%"
+        },
+        "open-copilot.modelIdOverrides": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "%open-copilot.config.modelIdOverrides.title%",
+          "description": "%open-copilot.config.modelIdOverrides.description%"
+        },
+        "open-copilot.modelRules": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "match",
+              "profile"
+            ],
+            "properties": {
+              "match": {
+                "type": "string",
+                "minLength": 1
+              },
+              "profile": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "apiModelId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "family": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "order": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "protocol": {
+                    "type": "string",
+                    "enum": [
+                      "chat-completions",
+                      "responses"
+                    ]
+                  },
+                  "allowProtocolFallback": {
+                    "type": "boolean"
+                  },
+                  "toolCalling": {
+                    "type": "boolean"
+                  },
+                  "parallelToolCalls": {
+                    "type": "boolean"
+                  },
+                  "imageMode": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "none",
+                      "proxy",
+                      "native"
+                    ]
+                  },
+                  "nativeImageInput": {
+                    "type": "boolean"
+                  },
+                  "maxInputTokens": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "maxOutputTokens": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "contextWindowTokens": {
+                    "type": "number",
+                    "minimum": 1
+                  },
+                  "maxTokensField": {
+                    "type": "string",
+                    "enum": [
+                      "max_tokens",
+                      "max_completion_tokens"
+                    ]
+                  },
+                  "strictTools": {
+                    "type": "boolean"
+                  },
+                  "reasoning": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "efforts": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "defaultEffort": {
+                        "type": "string"
+                      },
+                      "canDisable": {
+                        "type": "boolean"
+                      },
+                      "requestStyle": {
+                        "type": "string",
+                        "enum": [
+                          "chat-reasoning-effort",
+                          "chat-thinking",
+                          "responses-object",
+                          "none"
+                        ]
+                      },
+                      "outputStyle": {
+                        "type": "string",
+                        "enum": [
+                          "summary",
+                          "raw",
+                          "none"
+                        ]
+                      },
+                      "effortMap": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "extraRequestFields": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "title": "%open-copilot.config.modelRules.title%",
+          "description": "%open-copilot.config.modelRules.description%"
+        },
+        "open-copilot.modelProfiles": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "apiModelId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "family": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "order": {
+                "type": "number",
+                "minimum": 0
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "chat-completions",
+                  "responses"
+                ]
+              },
+              "allowProtocolFallback": {
+                "type": "boolean"
+              },
+              "toolCalling": {
+                "type": "boolean"
+              },
+              "parallelToolCalls": {
+                "type": "boolean"
+              },
+              "imageMode": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "none",
+                  "proxy",
+                  "native"
+                ]
+              },
+              "nativeImageInput": {
+                "type": "boolean"
+              },
+              "maxInputTokens": {
+                "type": "number",
+                "minimum": 0
+              },
+              "maxOutputTokens": {
+                "type": "number",
+                "minimum": 0
+              },
+              "contextWindowTokens": {
+                "type": "number",
+                "minimum": 1
+              },
+              "maxTokensField": {
+                "type": "string",
+                "enum": [
+                  "max_tokens",
+                  "max_completion_tokens"
+                ]
+              },
+              "strictTools": {
+                "type": "boolean"
+              },
+              "reasoning": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "efforts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "defaultEffort": {
+                    "type": "string"
+                  },
+                  "canDisable": {
+                    "type": "boolean"
+                  },
+                  "requestStyle": {
+                    "type": "string",
+                    "enum": [
+                      "chat-reasoning-effort",
+                      "chat-thinking",
+                      "responses-object",
+                      "none"
+                    ]
+                  },
+                  "outputStyle": {
+                    "type": "string",
+                    "enum": [
+                      "summary",
+                      "raw",
+                      "none"
+                    ]
+                  },
+                  "effortMap": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "extraRequestFields": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "title": "%open-copilot.config.modelProfiles.title%",
+          "description": "%open-copilot.config.modelProfiles.description%"
+        },
+        "open-copilot.vision.mode": {
+          "type": "string",
+          "default": "auto",
+          "title": "%open-copilot.config.vision.mode.title%",
+          "enum": [
+            "auto",
+            "native",
+            "proxy",
+            "none"
+          ],
+          "enumItemLabels": [
+            "%open-copilot.config.vision.mode.auto.label%",
+            "%open-copilot.config.vision.mode.native.label%",
+            "%open-copilot.config.vision.mode.proxy.label%",
+            "%open-copilot.config.vision.mode.none.label%"
+          ],
+          "description": "%open-copilot.config.vision.mode.description%"
+        },
+        "open-copilot.visionModel": {
+          "type": "string",
+          "default": "",
+          "tags": [
+            "advanced"
+          ],
+          "title": "%open-copilot.config.visionModel.title%",
+          "markdownDescription": "%open-copilot.config.visionModel.description%"
+        },
+        "open-copilot.visionPrompt": {
+          "type": "string",
+          "editPresentation": "multilineText",
+          "default": "Describe all image attachments in this message.\n\nIf there is one image, describe it directly.\nIf there are multiple images:\n1. Describe each image separately, preserving their order.\n2. Then provide a combined description explaining the overall context and relationships across the images.\n\nReturn one concise factual description suitable for inserting into a text-only chat prompt. Include visible text, objects, UI elements, people, and relevant context. Do not invent details.",
+          "title": "%open-copilot.config.visionPrompt.title%",
+          "markdownDescription": "%open-copilot.config.visionPrompt.description%"
+        },
+        "open-copilot.experimental.stabilizeToolList": {
+          "type": "boolean",
+          "default": false,
+          "title": "%open-copilot.config.experimental.stabilizeToolList.title%",
+          "markdownDescription": "%open-copilot.config.experimental.stabilizeToolList.description%",
+          "tags": [
+            "experimental"
+          ]
+        },
+        "open-copilot.debugMode": {
+          "type": "string",
+          "default": "minimal",
+          "title": "%open-copilot.config.debugMode.title%",
+          "enum": [
+            "minimal",
+            "metadata",
+            "verbose"
+          ],
+          "enumItemLabels": [
+            "%open-copilot.config.debugMode.minimal.label%",
+            "%open-copilot.config.debugMode.metadata.label%",
+            "%open-copilot.config.debugMode.verbose.label%"
+          ],
+          "markdownEnumDescriptions": [
+            "%open-copilot.config.debugMode.minimal.description%",
+            "%open-copilot.config.debugMode.metadata.description%",
+            "%open-copilot.config.debugMode.verbose.description%"
+          ],
+          "markdownDescription": "%open-copilot.config.debugMode.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true, maxRetries: process.platform === 'win32' ? 10 : 0 })\"",
+    "vscode:prepublish": "bash .github/scripts/prepare-marketplace-readme.sh && npm run compile",
+    "compile": "npm run clean && tsc -p ./",
+    "watch": "npm run clean && tsc -watch -p ./",
+    "lint": "oxlint",
+    "format": "oxfmt --write src/",
+    "format:check": "oxfmt --check src/",
+    "test": "npm run compile && node --test tests/compatibility-diagnostics.test.cjs tests/model-capabilities.test.cjs tests/model-catalog.test.cjs tests/upstream-reasoning.test.cjs",
+    "package": "vsce package --readme-path dist/README.marketplace.md -o dist/",
+    "login": "vsce login rongwei"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/vscode": "^1.116.0",
+    "@vscode/vsce": "^3.9.1",
+    "ovsx": "0.10.12",
+    "oxfmt": "^0.47.0",
+    "oxlint": "^1.62.0",
+    "typescript": "^6.0.3"
+  }
+}

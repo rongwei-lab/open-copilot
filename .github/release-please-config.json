@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "include-v-in-tag": true,
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "changelog-sections": [
+    { "type": "feat", "section": "新增功能" },
+    { "type": "fix", "section": "问题修复", "hidden": true },
+    { "type": "perf", "section": "性能优化" },
+    { "type": "deps", "section": "依赖更新" },
+    { "type": "revert", "section": "变更回退" },
+    { "type": "docs", "section": "文档更新", "hidden": false },
+    { "type": "chore", "section": "其他变更", "hidden": true }
+  ],
+  "packages": {
+    ".": {
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
