@@ -23,7 +23,7 @@ jobs:
 
       - run: npm run format:check
 
-      - run: npm run compile
+      - run: npm test
 
       - run: mkdir -p dist && npm run package
 

@@ -179,7 +179,14 @@ export class ChatAdapter {
 				path: '/chat/completions',
 			});
 		}
-		// EOF without [DONE] is accepted after flushing all complete SSE frames.
+		// Some gateways omit [DONE], but must still confirm completion in a choice.
+		if (!state.finishReason) {
+			throw new NewApiError({
+				code: 'protocol',
+				message: 'Chat Completions stream ended before a finish reason or [DONE]',
+				path: '/chat/completions',
+			});
+		}
 		flushToolCalls(state, sink);
 		complete(state, sink);
 	}

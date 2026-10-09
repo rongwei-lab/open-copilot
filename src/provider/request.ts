@@ -26,7 +26,7 @@ import { classifyDeepSeekRequest, shouldForceThinkingNone, type RequestKind } fr
 import type { ConversationSegment } from './segment';
 import { collectTrailingToolResultIds, prepareRequestTools } from './tools/request';
 import type { VisionResolutionResult, VisionResolutionStats } from './vision';
-import { resolveImageMessages, type VisionDescriber } from './vision';
+import { getImageParts, resolveImageMessages, type VisionDescriber } from './vision';
 
 export interface PreparedChatRequest {
 	client: OpenAICompatibleClient;
@@ -129,7 +129,12 @@ export async function prepareChatRequest({
 		messages: deepseekMessages,
 		stream: true,
 		tools,
-		tool_choice: tools && tools.length > 0 ? ('auto' as const) : undefined,
+		tool_choice:
+			tools && tools.length > 0
+				? options.toolMode === vscode.LanguageModelChatToolMode.Required
+					? 'required'
+					: 'auto'
+				: undefined,
 		max_tokens: maxTokens,
 		parallel_tool_calls:
 			tools && modelDef.capabilities.parallelToolCalls === true ? true : undefined,
@@ -327,10 +332,7 @@ function createNoVisionResolution(
 	stats.imageHandlingMode = 'none';
 	const resolved: vscode.LanguageModelChatRequestMessage[] = [];
 	for (const message of messages) {
-		const imageParts = message.content.filter(
-			(part): part is vscode.LanguageModelDataPart =>
-				part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/'),
-		);
+		const imageParts = getImageParts(message);
 		if (imageParts.length === 0) {
 			resolved.push(message);
 			continue;
@@ -356,13 +358,9 @@ function createNativeVisionResolution(
 ): VisionResolutionResult {
 	const stats = createNativeVisionResolutionStats();
 	for (const message of messages) {
-		let imagePartsInMessage = 0;
-		for (const part of message.content) {
-			if (part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/')) {
-				imagePartsInMessage += 1;
-				stats.inputImageBytes += part.data.byteLength;
-			}
-		}
+		const imageParts = getImageParts(message);
+		const imagePartsInMessage = imageParts.length;
+		for (const image of imageParts) stats.inputImageBytes += image.data.byteLength;
 		if (imagePartsInMessage > 0) {
 			stats.inputImageMessages += 1;
 			stats.inputImageParts += imagePartsInMessage;

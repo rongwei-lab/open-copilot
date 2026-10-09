@@ -72,6 +72,7 @@ export class NewApiClient {
 		try {
 			body = await response.json();
 		} catch (error) {
+			if (error instanceof NewApiError) throw error;
 			if (signal?.aborted) {
 				throw normalizeNewApiError(error, { path: '/models', signal });
 			}
@@ -127,6 +128,7 @@ export class NewApiClient {
 
 		const allowNonSse = options.allowNonSse ?? this.allowNonSse;
 		if (!allowNonSse && !isEventStreamContentType(response.headers.get('content-type'))) {
+			await response.body.cancel().catch(() => undefined);
 			throw new NewApiError({
 				code: 'invalid_content_type',
 				message: `Expected text/event-stream from ${path}`,
@@ -160,6 +162,11 @@ export class NewApiClient {
 				: undefined;
 		const callerSignal = init.signal ?? undefined;
 		const merged = mergeAbortSignals(callerSignal, timeoutController.signal);
+		const cleanup = (): void => {
+			if (timer !== undefined) clearTimeout(timer);
+			merged.dispose();
+		};
+		let bodyOwnsCleanup = false;
 		try {
 			const headers = {
 				...this.defaultHeaders,
@@ -177,7 +184,16 @@ export class NewApiClient {
 				headers,
 			});
 			if (response.ok) {
-				return response;
+				if (!response.body) return response;
+				const managed = manageResponseBody(response, merged.signal, cleanup, (error) =>
+					normalizeNewApiError(error, {
+						path: normalizedPath,
+						timeout: timedOut,
+						signal: callerSignal,
+					}),
+				);
+				bodyOwnsCleanup = true;
+				return managed;
 			}
 			const responseBody = redactToken(
 				await readResponseBody(response, this.maxErrorBodyBytes),
@@ -198,10 +214,7 @@ export class NewApiClient {
 				signal: callerSignal,
 			});
 		} finally {
-			if (timer !== undefined) {
-				clearTimeout(timer);
-			}
-			merged.dispose();
+			if (!bodyOwnsCleanup) cleanup();
 		}
 	}
 }
@@ -261,7 +274,7 @@ export function parseModelListEnvelope(input: unknown): RemoteModel[] {
 			vision: mergeModelVisionMetadata(previous.vision, parsed.vision),
 		});
 	}
-	if (modelsById.size === 0) {
+	if (input.data.length > 0 && modelsById.size === 0) {
 		throw new NewApiError({
 			code: 'invalid_models_data',
 			message: 'New API /models data contains no valid model IDs',
@@ -272,6 +285,78 @@ export function parseModelListEnvelope(input: unknown): RemoteModel[] {
 		...model,
 		contextWindowTokens: model.contextWindowTokens ?? inferKnownContextWindowTokens(model.id),
 	}));
+}
+
+/** Keep cancellation and the deadline alive until the body is consumed or cancelled. */
+function manageResponseBody(
+	response: Response,
+	signal: AbortSignal,
+	cleanup: () => void,
+	normalizeError: (error: unknown) => Error,
+): Response {
+	const reader = response.body!.getReader();
+	let finished = false;
+	let onAbort: () => void;
+	const finish = (): void => {
+		if (finished) return;
+		finished = true;
+		signal.removeEventListener('abort', onAbort);
+		cleanup();
+	};
+	const cancelReader = async (reason?: unknown): Promise<void> => {
+		try {
+			await reader.cancel(reason);
+		} finally {
+			reader.releaseLock();
+		}
+	};
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			onAbort = () => {
+				if (finished) return;
+				controller.error(normalizeError(signal.reason));
+				finish();
+				void cancelReader(signal.reason).catch(() => undefined);
+			};
+			signal.addEventListener('abort', onAbort, { once: true });
+			if (signal.aborted) onAbort();
+		},
+		async pull(controller) {
+			try {
+				const { done, value } = await reader.read();
+				if (finished) return;
+				if (done) {
+					controller.close();
+					finish();
+					reader.releaseLock();
+				} else {
+					controller.enqueue(value);
+				}
+			} catch (error) {
+				if (finished) return;
+				controller.error(normalizeError(error));
+				finish();
+				void cancelReader(error).catch(() => undefined);
+			}
+		},
+		async cancel(reason) {
+			if (finished) return;
+			finish();
+			await cancelReader(reason);
+		},
+	});
+	const managed = new Response(body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
+	// These fetch metadata fields are not accepted by the Response constructor.
+	Object.defineProperties(managed, {
+		url: { value: response.url },
+		redirected: { value: response.redirected },
+		type: { value: response.type },
+	});
+	return managed;
 }
 
 export function parseRemoteModel(input: unknown): RemoteModel | undefined {
@@ -392,10 +477,13 @@ async function readResponseBody(response: Response, maxBytes: number): Promise<s
 		let bytes = 0;
 		let result = '';
 		let truncated = false;
+		let reachedEnd = false;
+		let cancelled = false;
 		try {
 			while (bytes < maxBytes) {
 				const { done, value } = await reader.read();
 				if (done) {
+					reachedEnd = true;
 					result += decoder.decode();
 					break;
 				}
@@ -406,10 +494,14 @@ async function readResponseBody(response: Response, maxBytes: number): Promise<s
 				if (slice.byteLength < value.byteLength) {
 					truncated = true;
 					await reader.cancel();
+					cancelled = true;
 					break;
 				}
 			}
 		} finally {
+			if (!reachedEnd && !cancelled) {
+				await reader.cancel().catch(() => undefined);
+			}
 			reader.releaseLock();
 		}
 		return truncated ? `${truncateBody(result, maxBytes)}…` : truncateBody(result, maxBytes);

@@ -107,6 +107,7 @@ function toThinkingCapability(model: ResolvedModel): ThinkingCapability | false 
 	const reasoning = model.capabilities.reasoning;
 	if (
 		!reasoning.enabled ||
+		reasoning.requestStyle === 'none' ||
 		(!reasoning.canDisable && reasoning.efforts.length === 0) ||
 		!reasoning.defaultEffort
 	) {

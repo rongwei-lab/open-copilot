@@ -3,7 +3,7 @@
   "displayName": "open Copilot Chat",
   "description": "Use models exposed by QuantumNous New API in Copilot Chat with dynamic discovery, tools, reasoning, and vision.",
   "icon": "resources/icon.png",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "rongwei",
   "license": "MIT",
   "repository": {
@@ -674,7 +674,7 @@
     "lint": "oxlint",
     "format": "oxfmt --write src/",
     "format:check": "oxfmt --check src/",
-    "test": "npm run compile && node --test tests/compatibility-diagnostics.test.cjs tests/model-capabilities.test.cjs tests/model-catalog.test.cjs tests/upstream-reasoning.test.cjs",
+    "test": "npm run compile && node --test tests/*.test.cjs",
     "package": "vsce package --readme-path dist/README.marketplace.md -o dist/",
     "login": "vsce login rongwei"
   },

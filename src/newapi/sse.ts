@@ -185,10 +185,11 @@ export async function* decodeSseStream(
 	const reader = body.getReader();
 	const decoder = new SseDecoder();
 	let abortListener: (() => void) | undefined;
+	let reachedEof = false;
 	try {
 		if (signal) {
 			abortListener = () => {
-				void reader.cancel(signal.reason);
+				void reader.cancel(signal.reason).catch(() => undefined);
 			};
 			if (signal.aborted) {
 				abortListener();
@@ -201,13 +202,20 @@ export async function* decodeSseStream(
 				throw signal.reason ?? new DOMException('The operation was aborted', 'AbortError');
 			}
 			const { done, value } = await reader.read();
+			if (signal?.aborted) {
+				throw signal.reason ?? new DOMException('The operation was aborted', 'AbortError');
+			}
 			if (done) {
+				reachedEof = true;
 				for (const event of decoder.finish()) {
 					yield event;
 				}
 				return;
 			}
 			for (const event of decoder.push(value)) {
+				if (signal?.aborted) {
+					throw signal.reason ?? new DOMException('The operation was aborted', 'AbortError');
+				}
 				yield event;
 			}
 		}
@@ -215,7 +223,11 @@ export async function* decodeSseStream(
 		if (signal && abortListener) {
 			signal.removeEventListener('abort', abortListener);
 		}
-		reader.releaseLock();
+		try {
+			if (!reachedEof) await reader.cancel().catch(() => undefined);
+		} finally {
+			reader.releaseLock();
+		}
 	}
 }
 

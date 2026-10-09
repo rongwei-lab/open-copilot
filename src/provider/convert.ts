@@ -27,7 +27,7 @@ export function convertMessages(
 		const nativeVisionContentParts: DeepSeekContentPart[] = [];
 		let thinkingContent = '';
 		const toolCalls: DeepSeekToolCall[] = [];
-		const toolResults: Array<{ callId: string; content: string }> = [];
+		const toolResults: Array<{ callId: string; content: string | DeepSeekContentPart[] }> = [];
 
 		for (const part of message.content) {
 			if (part instanceof vscode.LanguageModelTextPart) {
@@ -58,14 +58,24 @@ export function convertMessages(
 				});
 			} else if (part instanceof vscode.LanguageModelToolResultPart) {
 				let toolContent = '';
+				const toolContentParts: DeepSeekContentPart[] = [];
 				for (const item of part.content) {
 					if (item instanceof vscode.LanguageModelTextPart) {
 						toolContent += item.value;
+						toolContentParts.push({ type: 'text', text: item.value });
+					} else if (nativeImageInput && isImageDataPart(item)) {
+						toolContentParts.push({
+							type: 'image_url',
+							image_url: { url: toImageDataUrl(item) },
+						});
 					}
 				}
 				toolResults.push({
 					callId: part.callId,
-					content: toolContent || safeStringify(part.content),
+					content:
+						toolContentParts.length > 0
+							? toolContentParts
+							: toolContent || safeStringify(part.content),
 				});
 			}
 		}

@@ -101,6 +101,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 	private catalogChangeDisposable?: { dispose(): void };
 	private nativeVisionRefreshQueue?: NativeVisionRefreshRequest;
 	private nativeVisionRefreshFlight?: Promise<void>;
+	private nativeVisionRefreshController?: AbortController;
 	private modelPickerRefreshTimer?: ReturnType<typeof setTimeout>;
 	/**
 	 * A catalog is normally created lazily when Copilot first asks for models.
@@ -445,9 +446,10 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			(candidate) => candidate.id === modelId || candidate.apiModelId === modelId,
 		);
 		if (!model) throw new Error(t('modelManager.modelNotFound'));
+		const diagnosticModel = applyModelIdOverride(model, settings);
 		const report = await runCompatibilityDiagnostics({
 			client: this.createNewApiClient(settings, token),
-			model,
+			model: diagnosticModel,
 			signal,
 			// A diagnostic consists of several bounded probes. Cap each probe so a
 			// single unavailable channel cannot keep the manager busy for minutes.
@@ -587,6 +589,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 	}
 
 	private invalidateCatalog(_reason: 'token' | 'baseUrl' | 'config' | 'manual'): void {
+		this.cancelNativeVisionRefresh();
 		// Dispose the old catalog rather than only invalidating its in-memory view.
 		// Catalogs now have a background timer; retaining one after a token/base URL
 		// change would let that timer continue using the old client closure.
@@ -596,6 +599,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		this.catalogChangeDisposable = undefined;
 		this.catalogSignature = undefined;
 		this.refreshModelPicker();
+	}
+
+	private cancelNativeVisionRefresh(): void {
+		this.nativeVisionRefreshQueue = undefined;
+		this.nativeVisionRefreshController?.abort();
 	}
 
 	/**
@@ -661,7 +669,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		// `proxy`/`native`/`none` are explicit user choices. Automatic probing is
 		// intentionally limited to `auto`; a global proxy setting must never be
 		// silently promoted to native by a background request.
-		if (settings.visionMode !== 'auto' || this.catalog !== catalog) return Promise.resolve();
+		if (!this.isActive || settings.visionMode !== 'auto' || this.catalog !== catalog)
+			return Promise.resolve();
 
 		const previous = this.nativeVisionRefreshQueue;
 		if (previous?.catalog === catalog && previous.token === token) {
@@ -702,12 +711,21 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			if (!request) return;
 			this.nativeVisionRefreshQueue = undefined;
 			if (this.catalog === request.catalog) {
-				await this.autoRefreshNewModelVisionInternal(
-					request.catalog,
-					request.token,
-					request.settings,
-					request.forceModelIds,
-				);
+				const controller = new AbortController();
+				this.nativeVisionRefreshController = controller;
+				try {
+					await this.autoRefreshNewModelVisionInternal(
+						request.catalog,
+						request.token,
+						request.settings,
+						request.forceModelIds,
+						controller.signal,
+					);
+				} finally {
+					if (this.nativeVisionRefreshController === controller) {
+						this.nativeVisionRefreshController = undefined;
+					}
+				}
 			}
 			// Let a catalog listener enqueue a request after a stale-while-revalidate
 			// refresh before deciding that the queue is empty.
@@ -735,10 +753,20 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		token: string,
 		settings: NewApiSettings,
 		forceModelIds: ReadonlySet<string> = new Set(),
+		signal?: AbortSignal,
 	): Promise<void> {
-		if (settings.visionMode !== 'auto' || this.catalog !== catalog) return;
-		const models = await catalog.getModels({ allowStale: true });
-		if (this.catalog !== catalog) return;
+		if (!this.isActive || settings.visionMode !== 'auto' || this.catalog !== catalog) return;
+		const models = await catalog.getModels({ allowStale: true, signal });
+		if (!this.isActive || this.catalog !== catalog || signal?.aborted) return;
+		const isCurrent = (modelId: string): boolean => {
+			return (
+				this.isActive &&
+				this.catalog === catalog &&
+				!signal?.aborted &&
+				createNativeVisionCheckScope(getNewApiSettings(), token, modelId) ===
+					createNativeVisionCheckScope(settings, token, modelId)
+			);
+		};
 
 		const state = readNativeVisionCheckState(
 			this.context.globalState.get<unknown>(NATIVE_VISION_CHECKS_STATE_KEY),
@@ -770,16 +798,20 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		logger.info(`Automatic native vision probe queued for ${pending.length} model(s)`);
 		let profileChanged = false;
 		for (const model of pending) {
+			if ((await this.authManager.getApiKey()) !== token || !isCurrent(model.id)) break;
 			const stateKey = createNativeVisionCheckScope(settings, token, model.id);
+			const updates: Record<string, NativeVisionCheckState> = {};
 			let status: NativeVisionCheckStatus = 'fail';
 			let applied = false;
 			try {
 				const check = await runVisionCompatibilityProbe({
 					client: this.createNewApiClient(settings, token),
-					model,
+					model: applyModelIdOverride(model, settings),
 					timeoutMs: Math.min(settings.requestTimeoutMs, 30_000),
 					includeVision: true,
+					signal,
 				});
+				if ((await this.authManager.getApiKey()) !== token || !isCurrent(model.id)) break;
 				status = check.status;
 				if (check.status === 'pass') {
 					try {
@@ -795,39 +827,52 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					}
 				}
 			} catch (error) {
+				if (!isCurrent(model.id)) break;
 				logger.warn(`Automatic native vision probe failed for ${model.id}`, error);
 			}
-			state[stateKey] = { status, checkedAt: Date.now(), applied };
+			updates[stateKey] = { status, checkedAt: Date.now(), applied };
 			if (applied) {
 				// Applying native vision changes the exact Profile and therefore the
 				// scope hash. Mirror the result under the post-write scope so the model
 				// manager can show “verified” immediately after the catalog is rebuilt.
-				const updatedSettings = getNewApiSettings();
-				state[createNativeVisionCheckScope(updatedSettings, token, model.id)] = {
+				// Only attribute the result to the configuration that was probed and
+				// patched, never to a different gateway selected during the write.
+				const updatedSettings = {
+					...settings,
+					modelProfiles: {
+						...settings.modelProfiles,
+						[model.id]: {
+							...settings.modelProfiles[model.id],
+							imageMode: 'native' as const,
+							nativeImageInput: true,
+						},
+					},
+				};
+				updates[createNativeVisionCheckScope(updatedSettings, token, model.id)] = {
 					status,
-					checkedAt: state[stateKey].checkedAt,
+					checkedAt: updates[stateKey].checkedAt,
 					applied,
 				};
 			}
 			logger.info(`Automatic native vision result for ${model.id}: ${status}`);
-		}
-
-		try {
-			// Re-read before writing so a second VS Code window cannot overwrite a
-			// check completed by the other window while this request was in flight.
-			const latestState = readNativeVisionCheckState(
-				this.context.globalState.get<unknown>(NATIVE_VISION_CHECKS_STATE_KEY),
-			);
-			await this.context.globalState.update(NATIVE_VISION_CHECKS_STATE_KEY, {
-				...latestState,
-				...state,
-			});
-		} catch (error) {
-			logger.warn('Unable to persist automatic native vision probe state', error);
+			try {
+				// Persist each completed probe before a profile write invalidates the
+				// batch, merging only its entries into the latest state.
+				const latestState = readNativeVisionCheckState(
+					this.context.globalState.get<unknown>(NATIVE_VISION_CHECKS_STATE_KEY),
+				);
+				await this.context.globalState.update(NATIVE_VISION_CHECKS_STATE_KEY, {
+					...latestState,
+					...updates,
+				});
+			} catch (error) {
+				logger.warn('Unable to persist automatic native vision probe state', error);
+			}
 		}
 		// Warn/fail is still a meaningful state transition. Notify both the picker
 		// and the model manager so the UI can say “checked, not verified” instead
 		// of looking as if no refresh happened.
+		if (!this.isActive) return;
 		this.refreshModelPicker();
 		if (profileChanged) {
 			// A configuration listener may already have invalidated the catalog while
@@ -1104,6 +1149,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 	async prepareForDeactivate(): Promise<void> {
 		this.isActive = false;
+		this.cancelNativeVisionRefresh();
 		if (this.modelPickerRefreshTimer !== undefined) {
 			clearTimeout(this.modelPickerRefreshTimer);
 			this.modelPickerRefreshTimer = undefined;
@@ -1343,6 +1389,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			return this.catalog;
 		}
 
+		this.cancelNativeVisionRefresh();
 		this.catalog?.dispose();
 		this.catalogChangeDisposable?.dispose();
 		const resolver = new ProfileResolver({
@@ -1576,6 +1623,11 @@ function cancellationSignal(token: vscode.CancellationToken): DisposableAbortSig
 	return { signal: controller.signal, dispose: () => disposable.dispose() };
 }
 
+function applyModelIdOverride(model: ResolvedModel, settings: NewApiSettings): ResolvedModel {
+	const override = settings.modelIdOverrides[model.id]?.trim();
+	return override && override !== model.apiModelId ? { ...model, apiModelId: override } : model;
+}
+
 function createNativeVisionCheckScope(
 	settings: NewApiSettings,
 	token: string,
@@ -1591,6 +1643,7 @@ function createNativeVisionCheckScope(
 			responses: settings.responses,
 			visionMode: settings.visionMode,
 			modelRules: settings.modelRules,
+			modelIdOverrides: settings.modelIdOverrides,
 			modelProfile: settings.modelProfiles[modelId],
 		}),
 	);

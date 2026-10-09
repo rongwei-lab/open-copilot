@@ -244,11 +244,9 @@ export class ModelCatalog {
 		await waitForSignal(this.ensureCacheLoaded(), options.signal);
 
 		const current = this.current;
-		// An empty resolved list is not a usable model directory. It can be
-		// produced when a gateway returns valid models but an older resolver
-		// rejects their advertised protocol. Always retry it after an upgrade or
-		// configuration change instead of serving the empty result for the TTL.
-		const fresh = current !== undefined && current.models.length > 0 && this.isFresh(current);
+		// A successful empty directory is authoritative too. Configuration changes
+		// have their own cache key and must not cause repeated empty-list requests.
+		const fresh = current !== undefined && this.isFresh(current);
 		if (!options.force && fresh) {
 			return cloneModels(current.models, false);
 		}
@@ -518,7 +516,7 @@ export function parseModelListEnvelope(input: unknown): RemoteModel[] {
 			vision: mergeModelVisionMetadata(previous.vision, parsed.vision),
 		});
 	}
-	if (byId.size === 0) {
+	if (input.data.length > 0 && byId.size === 0) {
 		throw new ModelCatalogError(
 			'invalid_models_data',
 			'New API /models data contains no valid model IDs',

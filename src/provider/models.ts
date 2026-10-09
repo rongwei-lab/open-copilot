@@ -87,12 +87,13 @@ export function getConfiguredThinkingEffort(
 		options.configuration?.reasoningEffort ??
 		options.configuration?.reasoning_effort;
 
-	if (configuredEffort === 'none') {
+	if (typeof configuredEffort === 'string' && configuredEffort.trim().toLowerCase() === 'none') {
 		return thinkingCapability.canDisable ? 'none' : thinkingCapability.defaultEffort;
 	}
 
-	if (isSupportedReasoningEffort(configuredEffort, thinkingCapability)) {
-		return configuredEffort;
+	const supportedEffort = getSupportedReasoningEffort(configuredEffort, thinkingCapability);
+	if (supportedEffort) {
+		return supportedEffort;
 	}
 
 	return thinkingCapability.defaultEffort;
@@ -126,11 +127,13 @@ function translatedOr(fallback: string, key: string): string {
 	return translated === key ? fallback : translated;
 }
 
-function isSupportedReasoningEffort(
+function getSupportedReasoningEffort(
 	value: unknown,
 	thinkingCapability: ThinkingCapability,
-): value is ReasoningEffort {
-	return thinkingCapability.supportedEfforts.some((effort) => effort === value);
+): ReasoningEffort | undefined {
+	if (typeof value !== 'string') return undefined;
+	const normalized = value.trim().toLowerCase();
+	return thinkingCapability.supportedEfforts.find((effort) => effort.toLowerCase() === normalized);
 }
 
 function resolveModelText(m: ModelDefinition, field: 'detail' | 'tooltip'): string | undefined {

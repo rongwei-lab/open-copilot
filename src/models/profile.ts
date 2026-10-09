@@ -191,6 +191,7 @@ export function toModelDefinition(model: ResolvedModel): ModelDefinition {
 			nativeImageInput: supportsNativeImageInput,
 			thinking:
 				reasoning.enabled &&
+				reasoning.requestStyle !== 'none' &&
 				(reasoning.efforts.length > 0 || reasoning.canDisable) &&
 				reasoning.defaultEffort
 					? {
@@ -697,7 +698,7 @@ function resolveCapabilities(
 			: normalizedEfforts.length > 0
 				? matchingDefault
 					? matchingDefault
-					: normalizedEfforts[Math.min(1, normalizedEfforts.length - 1)]
+					: chooseDefaultReasoningEffort(normalizedEfforts)
 				: canDisable
 					? 'none'
 					: undefined;
@@ -746,6 +747,13 @@ function resolveCapabilities(
 		reasoning:
 			compactOnly && profileReasoning?.enabled !== true ? disableReasoning(reasoning) : reasoning,
 	};
+}
+
+function chooseDefaultReasoningEffort(efforts: readonly string[]): string | undefined {
+	// Prefer the conventional balanced level when the upstream exposes it;
+	// otherwise use the first value the model actually advertised. Selecting the
+	// second array item made two-level ladders default to their strongest mode.
+	return efforts.find((effort) => effort.toLowerCase() === 'medium') ?? efforts[0];
 }
 
 function resolveImageMode(profile: ModelProfile, remote: RemoteModel): Exclude<ImageMode, 'auto'> {

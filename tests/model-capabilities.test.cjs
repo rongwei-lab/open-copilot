@@ -77,6 +77,40 @@ test('configured reasoning profiles reach the Copilot model definition', () => {
 	assert.equal(definition.reasoningRequestStyle, 'responses-object');
 });
 
+test('models without a reasoning request field do not expose a selectable thinking level', () => {
+	const model = resolvedModel('none');
+	model.capabilities.reasoning = {
+		enabled: true,
+		efforts: ['low', 'high'],
+		defaultEffort: 'high',
+		canDisable: false,
+		requestStyle: 'none',
+		outputStyle: 'summary',
+	};
+	assert.equal(toModelDefinition(model).capabilities.thinking, false);
+	assert.equal(toProfileModelDefinition(model).capabilities.thinking, false);
+});
+
+test('two-level reasoning profiles default to the first advertised level', () => {
+	const resolver = new ProfileResolver({
+		exactProfiles: {
+			'two-level': {
+				reasoning: {
+					enabled: true,
+					efforts: ['low', 'high'],
+					requestStyle: 'chat-reasoning-effort',
+				},
+			},
+		},
+	});
+	const result = resolver.explain({
+		id: 'two-level',
+		supportedEndpointTypes: ['openai'],
+		metadataIncomplete: false,
+	});
+	assert.equal(result.model?.capabilities.reasoning.defaultEffort, 'low');
+});
+
 test('Codex-compatible New API aliases expose the complete built-in effort ladder', () => {
 	const resolver = new ProfileResolver({ builtInRules: createCodexReasoningRules() });
 	const result = resolver.explain({

@@ -1,6 +1,7 @@
 import vscode from 'vscode';
 import { createUserFacingError } from '../client';
 import { logger } from '../logger';
+import { NewApiError } from '../newapi';
 import type { DeepSeekToolCall, DeepSeekUsage } from '../types';
 import {
 	observeCancellationToken,
@@ -229,16 +230,20 @@ function handleToolCall(
 	state: ResponseStreamState,
 	progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 ): void {
-	state.emittedToolCallIds.push(toolCall.id);
-
+	let args: unknown;
 	try {
-		const args = JSON.parse(toolCall.function.arguments);
-		progress.report(
-			new vscode.LanguageModelToolCallPart(toolCall.id, toolCall.function.name, args),
-		);
+		args = JSON.parse(toolCall.function.arguments);
 	} catch {
-		progress.report(new vscode.LanguageModelToolCallPart(toolCall.id, toolCall.function.name, {}));
+		throw new NewApiError({ code: 'protocol', message: 'Tool call arguments are not valid JSON' });
 	}
+	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+		throw new NewApiError({
+			code: 'protocol',
+			message: 'Tool call arguments must be a JSON object',
+		});
+	}
+	progress.report(new vscode.LanguageModelToolCallPart(toolCall.id, toolCall.function.name, args));
+	state.emittedToolCallIds.push(toolCall.id);
 }
 
 function finalizeReplayDiagnostics(

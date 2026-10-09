@@ -64,12 +64,7 @@ export async function resolveImageMessages(
 		if (replayText) {
 			stats.replayedImageMessages += 1;
 			stats.droppedImageParts += imageParts.length;
-			result.push(
-				createResolvedMessage(message, [
-					...nonImageParts,
-					new vscode.LanguageModelTextPart(replayText),
-				]),
-			);
+			result.push(createResolvedMessageWithVisionText(message, replayText));
 			continue;
 		}
 
@@ -94,12 +89,7 @@ export async function resolveImageMessages(
 			markerVisionText = visionText;
 			stats.markerVisionTextChars = visionText.length;
 			stats.droppedImageParts += imageParts.length;
-			result.push(
-				createResolvedMessage(message, [
-					...nonImageParts,
-					new vscode.LanguageModelTextPart(visionText),
-				]),
-			);
+			result.push(createResolvedMessageWithVisionText(message, visionText));
 			continue;
 		}
 
@@ -321,24 +311,71 @@ function createResolvedMessage(
 	} as unknown as vscode.LanguageModelChatRequestMessage;
 }
 
-function getImageParts(
+export function getImageParts(
 	message: vscode.LanguageModelChatRequestMessage,
 ): vscode.LanguageModelDataPart[] {
-	return (message.content as readonly vscode.LanguageModelInputPart[]).filter(isImageDataPart);
+	const result: vscode.LanguageModelDataPart[] = [];
+	for (const part of message.content as readonly vscode.LanguageModelInputPart[]) {
+		if (isImageDataPart(part)) {
+			result.push(part);
+		} else if (part instanceof vscode.LanguageModelToolResultPart) {
+			for (const item of part.content) {
+				if (isImageDataPart(item)) result.push(item);
+			}
+		}
+	}
+	return result;
 }
 
 function getNonImageParts(
 	message: vscode.LanguageModelChatRequestMessage,
 ): vscode.LanguageModelInputPart[] {
-	return (message.content as readonly vscode.LanguageModelInputPart[]).filter(
-		(part) => !isImageDataPart(part),
-	);
+	return (message.content as readonly vscode.LanguageModelInputPart[])
+		.filter((part) => !isImageDataPart(part))
+		.map((part) => {
+			if (!(part instanceof vscode.LanguageModelToolResultPart)) return part;
+			const content = part.content.filter((item) => !isImageDataPart(item));
+			return content.length === part.content.length
+				? part
+				: new vscode.LanguageModelToolResultPart(part.callId, content);
+		});
 }
 
 function hasNonEmptyTextPart(parts: readonly vscode.LanguageModelInputPart[]): boolean {
 	return parts.some(
-		(part) => part instanceof vscode.LanguageModelTextPart && part.value.trim().length > 0,
+		(part) =>
+			(part instanceof vscode.LanguageModelTextPart && part.value.trim().length > 0) ||
+			(part instanceof vscode.LanguageModelToolResultPart &&
+				part.content.some(
+					(item) => item instanceof vscode.LanguageModelTextPart && item.value.trim().length > 0,
+				)),
 	);
+}
+
+function createResolvedMessageWithVisionText(
+	message: vscode.LanguageModelChatRequestMessage,
+	visionText: string,
+): vscode.LanguageModelChatRequestMessage {
+	const content: vscode.LanguageModelInputPart[] = [];
+	let appendedToToolResult = false;
+
+	for (const part of message.content as readonly vscode.LanguageModelInputPart[]) {
+		if (isImageDataPart(part)) continue;
+		if (part instanceof vscode.LanguageModelToolResultPart) {
+			const nestedImages = part.content.some(isImageDataPart);
+			if (nestedImages) {
+				const toolContent = part.content.filter((item) => !isImageDataPart(item));
+				if (!appendedToToolResult) toolContent.push(new vscode.LanguageModelTextPart(visionText));
+				content.push(new vscode.LanguageModelToolResultPart(part.callId, toolContent));
+				appendedToToolResult = true;
+				continue;
+			}
+		}
+		content.push(part);
+	}
+
+	if (!appendedToToolResult) content.push(new vscode.LanguageModelTextPart(visionText));
+	return createResolvedMessage(message, content);
 }
 
 function isImageDataPart(part: unknown): part is vscode.LanguageModelDataPart {

@@ -250,7 +250,24 @@ export async function updateModelProfile(
 		throw new Error('Model profile ID is not a valid object key');
 	}
 
-	const raw = getConfigValue<unknown>('modelProfiles', {});
+	const configuration = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const inspection =
+		typeof configuration.inspect === 'function'
+			? configuration.inspect<unknown>('modelProfiles')
+			: undefined;
+	const workspaceProfiles = inspection?.workspaceFolderValue;
+	const workspaceTarget = (
+		vscode.ConfigurationTarget as typeof vscode.ConfigurationTarget & {
+			Workspace?: vscode.ConfigurationTarget;
+		}
+	).Workspace;
+	const writeToWorkspace = workspaceProfiles !== undefined && workspaceTarget !== undefined;
+	// Read and write the same scope. Reading the merged effective value and then
+	// always writing globally leaves workspace overrides unchanged and makes a
+	// successful profile update appear to have no effect in that workspace.
+	const raw = writeToWorkspace
+		? workspaceProfiles
+		: (inspection?.globalValue ?? getConfigValue<unknown>('modelProfiles', {}));
 	const profiles: Record<string, Record<string, unknown>> = {};
 	if (isRecord(raw)) {
 		for (const [id, value] of Object.entries(raw)) {
@@ -265,9 +282,11 @@ export async function updateModelProfile(
 	}
 	profiles[normalizedId] = merged;
 
-	await vscode.workspace
-		.getConfiguration(CONFIG_SECTION)
-		.update('modelProfiles', profiles, vscode.ConfigurationTarget.Global);
+	await configuration.update(
+		'modelProfiles',
+		profiles,
+		writeToWorkspace ? workspaceTarget : vscode.ConfigurationTarget.Global,
+	);
 }
 
 function isUnsafeProfileKey(value: string): boolean {

@@ -182,8 +182,11 @@ export class ResponsesAdapter {
 				path: '/responses',
 			});
 		}
-		flushFunctionCalls(state, sink);
-		complete(state, sink);
+		throw new NewApiError({
+			code: 'protocol',
+			message: 'Responses stream ended before a completion event or [DONE]',
+			path: '/responses',
+		});
 	}
 
 	streamResponses(
